@@ -1,13 +1,13 @@
 # Teamplanner
 
-[![Pipeline](https://github.com/pmecpmec/CPD/actions/workflows/pipeline.yml/badge.svg?branch=main)](https://github.com/pmecpmec/CPD/actions/workflows/pipeline.yml)
-[![Coverage](https://img.shields.io/endpoint?url=https://pmecpmec.github.io/CPD/badges/coverage.json)](https://github.com/pmecpmec/CPD/actions/workflows/pipeline.yml)
-[![Kwetsbaarheden](https://img.shields.io/endpoint?url=https://pmecpmec.github.io/CPD/badges/security.json)](https://github.com/pmecpmec/CPD/security/code-scanning)
+[![Pipeline](https://github.com/pmecpmec/devopsWindesheim/actions/workflows/pipeline.yml/badge.svg?branch=main)](https://github.com/pmecpmec/devopsWindesheim/actions/workflows/pipeline.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://pmecpmec.github.io/devopsWindesheim/badges/coverage.json)](https://github.com/pmecpmec/devopsWindesheim/actions/workflows/pipeline.yml)
+[![Kwetsbaarheden](https://img.shields.io/endpoint?url=https://pmecpmec.github.io/devopsWindesheim/badges/security.json)](https://github.com/pmecpmec/devopsWindesheim/security/code-scanning)
 
 Flutter-app voor teams, events, matches, QR-uitnodigingen en een routeplanner. Draait op web en Android.
-De back-end is een bestaande REST-API.
+De back-end is een bestaande REST-API. De app komt uit het vak Cross-Platform Development (repo `pmecpmec/CPD`); deze repo voegt de DevOps-pipeline toe.
 
-Live: https://pmecpmec.github.io/CPD/
+Live: https://pmecpmec.github.io/devopsWindesheim/
 
 ## Lokaal draaien
 
