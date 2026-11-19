@@ -1,6 +1,6 @@
 # Stap 1: de Flutter-webversie bouwen
 FROM ghcr.io/cirruslabs/flutter:3.44.0 AS build
-# Dezelfde Flutter-versie als lokaal en in de pipeline; het basisimage loopt achter
+# Dezelfde Flutter-versie als lokaal en in ci.yml; het basisimage loopt achter
 ARG FLUTTER_VERSION=3.44.9
 RUN git -C /sdks/flutter fetch --depth 1 origin tag ${FLUTTER_VERSION}     && git -C /sdks/flutter checkout -q ${FLUTTER_VERSION}     && flutter --version
 WORKDIR /app

@@ -1,4 +1,4 @@
-# Infrastructuurtests voor de container. Draaien in de pipeline via dgoss en in de HEALTHCHECK.
+# Infrastructuurtests voor de container. Draaien in de HEALTHCHECK en in de pipeline (docker exec).
 port:
   tcp:8080:
     listening: true
