@@ -153,7 +153,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: docker-image
-      # Vastgezet op de commit van v0.36.0: versie-tags van deze action zijn eerder gekaapt
+      # Vastgezet op de commit van v0.36.0. In maart 2026 zijn de versie-tags van deze action gekaapt (GHSA-69fq-xp46-6x23)
       - name: Image scannen
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
