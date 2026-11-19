@@ -1,0 +1,17 @@
+# Infrastructuurtests voor de container. Draaien in de pipeline via dgoss en in de HEALTHCHECK.
+port:
+  tcp:8080:
+    listening: true
+process:
+  nginx:
+    running: true
+file:
+  /usr/share/nginx/html/main.dart.js:
+    exists: true
+http:
+  http://localhost:8080/health:
+    status: 200
+    body: ["OK"]
+  http://localhost:8080/:
+    status: 200
+    body: ["<title>Teamplanner</title>"]
