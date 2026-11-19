@@ -1,4 +1,4 @@
-# Infrastructuurtests voor de container. Draaien in de HEALTHCHECK en in de pipeline (docker exec).
+# Infrastructuurtests voor de container. De pipeline draait ze met dgoss: dgoss run teamplanner
 port:
   tcp:8080:
     listening: true

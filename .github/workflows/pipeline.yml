@@ -1,0 +1,236 @@
+# CI/CD-pipeline: test -> build (web, Android, Docker) -> security -> deploy.
+# Deployen gebeurt alleen bij een push naar main en alleen als alle eerdere jobs slagen.
+#
+# Eenmalig in de repository: Settings -> Pages -> Source op "GitHub Actions".
+
+name: Pipeline
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+env:
+  FLUTTER_VERSION: 3.44.9
+  MIN_COVERAGE: 60
+
+jobs:
+  test:
+    name: Analyse en tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - name: Formattering controleren
+        run: dart format --output=none --set-exit-if-changed .
+      - name: Statische analyse
+        run: flutter analyze
+      - name: Tests met coverage
+        run: flutter test --coverage --file-reporter json:test-resultaat.json
+      - name: Coverage berekenen en badge maken
+        run: |
+          pct=$(awk -F: '/^LF:/{f+=$2} /^LH:/{h+=$2} END{printf "%.1f", 100*h/f}' coverage/lcov.info)
+          color=$(awk -v p="$pct" 'BEGIN{print (p>=80)?"brightgreen":(p>=60)?"yellow":"red"}')
+          mkdir -p badges
+          echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${pct}%\",\"color\":\"${color}\"}" > badges/coverage.json
+          echo "### Coverage: ${pct}% (minimaal ${MIN_COVERAGE}%)" >> "$GITHUB_STEP_SUMMARY"
+          awk -v p="$pct" -v m="$MIN_COVERAGE" 'BEGIN{exit !(p>=m)}' || { echo "Coverage ${pct}% is lager dan ${MIN_COVERAGE}%"; exit 1; }
+      - name: Testresultaten bewaren
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: testresultaten
+          path: |
+            test-resultaat.json
+            coverage/lcov.info
+      - uses: actions/upload-artifact@v7
+        with:
+          name: badge-coverage
+          path: badges/coverage.json
+
+  build-web:
+    name: Webbuild
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - run: flutter build web --release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web-build
+          path: build/web
+
+  build-android:
+    name: Androidbuild
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  docker:
+    name: Docker-image en infrastructuurtests
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v7
+      - name: Image bouwen
+        run: docker build -t teamplanner:${{ github.sha }} .
+      - name: Container starten
+        run: docker run -d --name app -p 8080:8080 teamplanner:${{ github.sha }}
+      - name: Wachten op HEALTHCHECK
+        run: |
+          for _ in $(seq 1 20); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' app)
+            echo "status: $status"
+            [ "$status" = "healthy" ] && exit 0
+            sleep 3
+          done
+          docker logs app
+          exit 1
+      - name: Goss en dgoss installeren
+        run: |
+          curl -fsSL "https://github.com/goss-org/goss/releases/download/v${GOSS_VERSION}/goss_${GOSS_VERSION}_linux_x86_64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin goss
+          sudo curl -fsSL -o /usr/local/bin/dgoss "https://github.com/goss-org/goss/releases/download/v${GOSS_VERSION}/dgoss"
+          sudo chmod +x /usr/local/bin/dgoss
+        env:
+          GOSS_VERSION: 0.4.10
+      - name: Goss-tests draaien met dgoss
+        working-directory: .goss
+        env:
+          GOSS_FILES_STRATEGY: cp
+          GOSS_SLEEP: 3
+          GOSS_OPTS: --format junit
+        run: dgoss run teamplanner:${{ github.sha }} > ../goss-resultaat.xml
+      - name: Goss-resultaat bewaren
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: goss-resultaat
+          path: goss-resultaat.xml
+      - name: Image bewaren voor de security-scan
+        run: docker save teamplanner:${{ github.sha }} -o image.tar
+      - uses: actions/upload-artifact@v7
+        with:
+          name: docker-image
+          path: image.tar
+          retention-days: 1
+
+  security:
+    name: Security-scan
+    runs-on: ubuntu-latest
+    needs: docker
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: docker-image
+      # Vastgezet op de commit van v0.36.0: versie-tags van deze action zijn eerder gekaapt
+      - name: Image scannen
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          input: image.tar
+          format: json
+          output: trivy-image.json
+          severity: HIGH,CRITICAL
+      - name: Dependencies scannen (pubspec.lock en Gradle)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: json
+          output: trivy-deps.json
+          severity: HIGH,CRITICAL
+      - name: Kwetsbaarheden tellen en badge maken
+        run: |
+          count=$(jq -s '[.[].Results[]?.Vulnerabilities[]?] | length' trivy-image.json trivy-deps.json)
+          color=$([ "$count" -eq 0 ] && echo brightgreen || echo red)
+          mkdir -p badges
+          echo "{\"schemaVersion\":1,\"label\":\"kwetsbaarheden\",\"message\":\"${count} hoog/kritiek\",\"color\":\"${color}\"}" > badges/security.json
+          echo "### Kwetsbaarheden (hoog/kritiek): ${count}" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: badge-security
+          path: badges/security.json
+      - name: Image scannen (SARIF voor het Security-tabblad)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          input: image.tar
+          format: sarif
+          output: trivy.sarif
+          severity: HIGH,CRITICAL
+      - uses: github/codeql-action/upload-sarif@v4
+        if: github.event_name == 'push'
+        with:
+          sarif_file: trivy.sarif
+      - name: Stoppen bij kritieke kwetsbaarheid met beschikbare fix
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          input: image.tar
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  deploy-pages:
+    name: Deploy naar GitHub Pages
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build-web, build-android, security]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
+      - name: Badges meenemen
+        uses: actions/download-artifact@v8
+        with:
+          pattern: badge-*
+          path: build/web/badges
+          merge-multiple: true
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: build/web
+      - id: deployment
+        uses: actions/deploy-pages@v5
