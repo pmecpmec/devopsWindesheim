@@ -13,6 +13,8 @@ RUN flutter build web --release
 
 # Stap 2: alleen de gebouwde bestanden serveren met nginx, zonder root
 FROM nginxinc/nginx-unprivileged:alpine AS final
+# Koppelt het package in GHCR aan deze repository
+LABEL org.opencontainers.image.source=https://github.com/pmecpmec/devopsWindesheim
 USER root
 # Beveiligingsupdates van het basisimage meenemen; Trivy in de pipeline controleert dit
 RUN apk upgrade --no-cache

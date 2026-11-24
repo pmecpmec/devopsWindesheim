@@ -1,5 +1,5 @@
-# CI/CD-pipeline: test -> build (web, Android, Docker) -> security -> deploy.
-# Deployen gebeurt alleen bij een push naar main en alleen als alle eerdere jobs slagen.
+# CI/CD-pipeline: test -> build (web, Android, Docker) -> security -> release (GHCR) -> deploy.
+# Release en deploy gebeuren alleen bij een push naar main (of een versie-tag) en alleen als alle eerdere jobs slagen.
 #
 # Eenmalig in de repository: Settings -> Pages -> Source op "GitHub Actions".
 
@@ -8,6 +8,7 @@ name: Pipeline
 on:
   push:
     branches: [main, dev]
+    tags: ['v*']
   pull_request:
     branches: [main, dev]
   workflow_dispatch:
@@ -199,13 +200,53 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
+  release:
+    name: Release naar GHCR
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    needs: [docker, security]
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: write
+      packages: write
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+    steps:
+      # Dezelfde image die Goss en Trivy hebben getest, niet opnieuw gebouwd
+      - uses: actions/download-artifact@v8
+        with:
+          name: docker-image
+      - name: Inloggen bij GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Image taggen en pushen
+        id: push
+        run: |
+          docker load -i image.tar
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          tags="sha-${GITHUB_SHA::7}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then tags="$tags $GITHUB_REF_NAME"; else tags="$tags latest"; fi
+          for tag in $tags; do
+            docker tag "teamplanner:${GITHUB_SHA}" "$image:$tag"
+            docker push "$image:$tag"
+            echo "- \`$image:$tag\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+          echo "image=$image:sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - name: GitHub Release maken
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes \
+            --notes "Docker-image: \`ghcr.io/${GITHUB_REPOSITORY,,}:$GITHUB_REF_NAME\`"
+
   deploy-pages:
     name: Deploy naar GitHub Pages
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [build-web, build-android, security]
+    needs: [release, build-web, build-android]
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: read
       pages: write
       id-token: write
     concurrency:
@@ -215,22 +256,26 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
-      - run: flutter pub get
-      - run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
+      - name: Inloggen bij GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      # De site komt uit de gereleasede image in de registry, niet uit een nieuwe build
+      - name: Site uit de image halen
+        run: |
+          docker pull "${{ needs.release.outputs.image }}"
+          docker create --name site "${{ needs.release.outputs.image }}"
+          docker cp site:/usr/share/nginx/html site
+          base="/${{ github.event.repository.name }}/"
+          sed -i "s|<base href=\"/\">|<base href=\"$base\">|" site/index.html
+          grep -q "<base href=\"$base\">" site/index.html
       - name: Badges meenemen
         uses: actions/download-artifact@v8
         with:
           pattern: badge-*
-          path: build/web/badges
+          path: site/badges
           merge-multiple: true
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: build/web
+          path: site
       - id: deployment
         uses: actions/deploy-pages@v5

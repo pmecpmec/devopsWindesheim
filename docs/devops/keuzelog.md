@@ -16,6 +16,10 @@ Status "voorstel" betekent: technisch uitgevoerd, Pedro moet de reden nog bevest
 | K9 | Pipeline stopt bij een kritieke kwetsbaarheid waarvoor een fix bestaat | Alleen rapporteren | Geen bekende, oplosbare lekken naar productie | voorstel |
 | K11 | trivy-action vastgezet op een commit in plaats van een versie-tag | `@v0.36.0` of `@master` | In maart 2026 zijn de tags van deze action gekaapt (GHSA-69fq-xp46-6x23). Een commit kan niet worden omgehangen | voorstel |
 | K10 | Coverage minimaal 60% | Geen drempel | Huidige stand 66,5%. De drempel voorkomt dat het ongemerkt zakt | voorstel |
+| K12 | Release naar GitHub Container Registry (GHCR) | Docker Hub | Inloggen met het `GITHUB_TOKEN` van de pipeline. Geen extra account of secret nodig. Tags volgens de les: `latest` voor `main`, een versie-tag bij `v*` | voorstel |
+| K13 | De release pusht de image die Goss en Trivy hebben getest | Opnieuw bouwen in de release-job | Wat in de registry staat is precies wat getest is | voorstel |
+| K14 | GitHub Pages haalt de site uit de image in GHCR | Flutter opnieuw bouwen voor Pages | Zo wordt de release zelf gedeployed. Alleen de `<base href>` wordt aangepast. Lokaal gecontroleerd (24-11): een build met `--base-href /devopsWindesheim/` verschilt verder alleen in de service-worker-versie | voorstel |
+| K15 | Omgeving `production` op de release-job, alleen vanaf `main` of een versie-tag | Ook een `staging`-omgeving op `dev` | Er is nu geen `dev`-tak in deze repo. Pull requests draaien test, build en security, maar releasen en deployen niet | voorstel |
 
 ## Meetwaarden (lokaal gemeten op 19-11-2026)
 
